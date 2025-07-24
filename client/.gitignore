@@ -1,0 +1,36 @@
+# Log files
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Dependency directories
+node_modules/
+client/node_modules/
+
+# Environment variables (contains secrets)
+.env
+server/.env
+client/.env
+
+# Google Cloud Platform credentials file (very important)
+server/apiKey.json
+
+# Production build output
+client/dist
+client/build
+
+# IDE and editor directories
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Operating system files
+.DS_Store
+Thumbs.db
