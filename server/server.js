@@ -15,16 +15,16 @@ const path = require('path');
 const Transcription = require('./models/Transcription');
 const User = require('./models/User');
 
-// App setup
+// Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5000;
 
-// DB Connection
+// Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ MongoDB connected'))
-  .catch(err => console.error('❌ MongoDB error:', err));
+  .catch((err) => console.error('❌ MongoDB connection error:', err));
 
-// Google Cloud Speech client
+// Google Speech Client
 const speechClient = new speech.SpeechClient();
 
 // Middleware
@@ -32,38 +32,36 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Auth middleware
+// Auth Middleware
 const protect = async (req, res, next) => {
-  let token;
-  if (req.headers.authorization?.startsWith('Bearer')) {
-    try {
-      token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id).select('-password');
-      return next();
-    } catch (error) {
-      return res.status(401).json({ error: 'Invalid token.' });
-    }
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token provided.' });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.id).select('-password');
+    if (!req.user) return res.status(401).json({ error: 'User not found.' });
+
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Unauthorized access.' });
   }
-  return res.status(401).json({ error: 'No token provided.' });
 };
 
-// Multer setup
+// Multer setup for audio uploads
 const uploadMiddleware = (req, res, next) => {
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 25 * 1024 * 1024 },
+    limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
     fileFilter: (req, file, cb) => {
-      if (file.mimetype.startsWith('audio/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Only audio files allowed'), false);
-      }
-    },
+      file.mimetype.startsWith('audio/')
+        ? cb(null, true)
+        : cb(new Error('Only audio files allowed'), false);
+    }
   }).single('audio');
 
-  upload(req, res, err => {
-    if (err) return res.status(400).json({ error: 'Upload error', details: err.message });
+  upload(req, res, (err) => {
+    if (err) return res.status(400).json({ error: 'Upload failed', details: err.message });
     next();
   });
 };
@@ -74,17 +72,15 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     if (!username || !password) return res.status(400).json({ error: 'All fields required.' });
 
-    const existing = await User.findOne({ username });
-    if (existing) return res.status(400).json({ error: 'Username taken.' });
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(400).json({ error: 'Username already exists.' });
 
     const hash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, password: hash });
 
-    res.status(201).json({
-      _id: user.id,
-      username: user.username,
-      token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
-    });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.status(201).json({ _id: user._id, username: user.username, token });
   } catch (err) {
     res.status(500).json({ error: 'Registration failed.', details: err.message });
   }
@@ -94,14 +90,12 @@ app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
     const user = await User.findOne({ username });
-    if (user && (await bcrypt.compare(password, user.password))) {
-      return res.json({
-        _id: user.id,
-        username: user.username,
-        token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
-      });
-    }
-    res.status(401).json({ error: 'Invalid credentials.' });
+    const isMatch = user && await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials.' });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({ _id: user._id, username: user.username, token });
   } catch (err) {
     res.status(500).json({ error: 'Login failed.', details: err.message });
   }
@@ -110,16 +104,17 @@ app.post('/api/auth/login', async (req, res) => {
 // --- Transcription Routes ---
 app.get('/api/transcriptions', protect, async (req, res) => {
   try {
-    const items = await Transcription.find({ user: req.user.id }).sort({ createdAt: -1 });
+    const items = await Transcription.find({ user: req.user._id }).sort({ createdAt: -1 });
     res.json(items);
-  } catch {
+  } catch (err) {
     res.status(500).json({ error: 'Failed to fetch transcriptions.' });
   }
 });
 
 app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
   const { language, sourceType } = req.body;
-  if (!req.file) return res.status(400).json({ error: 'No audio uploaded.' });
+
+  if (!req.file) return res.status(400).json({ error: 'No audio file uploaded.' });
 
   try {
     const projectId = await speechClient.getProjectId();
@@ -154,20 +149,24 @@ app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
     config.encoding = encodingMap[req.file.mimetype] || 'ENCODING_UNSPECIFIED';
     if (config.encoding === 'WEBM_OPUS') config.sampleRateHertz = 48000;
 
-    const [response] = await speechClient.recognize({ audio: { content: audioBytes }, config });
-
-    const text = response.results?.map(r => r.alternatives[0].transcript).join('\n') || '[No speech detected]';
-    const newT = await Transcription.create({
-      fileName: req.file.originalname,
-      transcriptionText: text,
-      language,
-      sourceType,
-      user: req.user.id
+    const [response] = await speechClient.recognize({
+      audio: { content: audioBytes },
+      config
     });
 
-    res.status(201).json(newT);
+    const transcription = response.results?.map(r => r.alternatives[0].transcript).join('\n') || '[No speech detected]';
+
+    const newTranscription = await Transcription.create({
+      fileName: req.file.originalname,
+      transcriptionText: transcription,
+      language,
+      sourceType,
+      user: req.user._id
+    });
+
+    res.status(201).json(newTranscription);
   } catch (error) {
-    console.error("❌ Transcribe error:", error);
+    console.error("❌ Transcribe error:", error.message);
     res.status(500).json({ error: 'Transcription failed.', details: error.message });
   }
 });
@@ -175,29 +174,26 @@ app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
 app.delete('/api/transcriptions/:id', protect, async (req, res) => {
   try {
     const item = await Transcription.findById(req.params.id);
-    if (!item) return res.status(404).json({ error: 'Not found.' });
-    if (item.user.toString() !== req.user.id) return res.status(403).json({ error: 'Not authorized.' });
+    if (!item) return res.status(404).json({ error: 'Transcription not found.' });
+    if (item.user.toString() !== req.user._id.toString()) return res.status(403).json({ error: 'Not authorized.' });
 
     await item.deleteOne();
     res.json({ message: 'Deleted successfully.' });
-  } catch {
+  } catch (err) {
     res.status(500).json({ error: 'Delete failed.' });
   }
 });
 
-// --- Serve React Static Files (Production) ---
+// --- Serve Client in Production ---
 if (process.env.NODE_ENV === 'production') {
   const clientPath = path.join(__dirname, '../client/build');
   app.use(express.static(clientPath));
-
-  app.get('/*', (req, res) => {
+  app.get('*', (req, res) => {
     res.sendFile(path.join(clientPath, 'index.html'));
   });
 }
 
-// --- Start server ---
-try {
-  app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
-} catch (err) {
-  console.error('❌ Failed to start server:', err.message);
-}
+// --- Start Server ---
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
