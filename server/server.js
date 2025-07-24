@@ -216,10 +216,12 @@ app.delete('/api/transcriptions/:id', protect, async (req, res) => {
 
 // --- DEPLOYMENT: SERVE STATIC ASSETS ---
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../client/dist')));
+    // NOTE: The build log shows you are using 'react-scripts', which outputs to a 'build' folder.
+    // If you are using Vite, the folder is 'dist'. I have changed this to 'build'.
+    app.use(express.static(path.join(__dirname, '../client/build')));
 
     app.get('*', (req, res) => {
-        res.sendFile(path.resolve(__dirname, '../client/dist', 'index.html'));
+        res.sendFile(path.resolve(__dirname, '../client/build', 'index.html'));
     });
 }
 
