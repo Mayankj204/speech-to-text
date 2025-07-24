@@ -2,11 +2,10 @@
   "name": "server",
   "version": "1.0.0",
   "main": "server.js",
-
-"scripts": {
-  "start": "node server.js",
-  "build": "cd ../client && npm install && npm run build"
-},
+  "scripts": {
+    "start": "node server.js",
+    "build": "cd ../client && npm install && npm run build"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -22,6 +21,4 @@
     "multer": "^2.0.2",
     "nodemailer": "^7.0.5"
   }
-
-  
 }
