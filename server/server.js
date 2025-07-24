@@ -1,7 +1,7 @@
-// Load environment variables from a .env file
+// Load environment variables
 require('dotenv').config();
 
-// Import necessary packages
+// Core imports
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -9,223 +9,195 @@ const mongoose = require('mongoose');
 const speech = require('@google-cloud/speech');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const path = require('path'); // Import the 'path' module
+const path = require('path');
 
-// Import Mongoose Models
+// Models
 const Transcription = require('./models/Transcription');
 const User = require('./models/User');
 
-// --- Basic Server Setup ---
+// App setup
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// --- Database Connection ---
+// DB Connection
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('MongoDB connected successfully.'))
-    .catch(err => console.error('MongoDB connection error:', err));
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB error:', err));
 
-// --- Initialize Google Speech Client ---
+// Google Cloud Speech client
 const speechClient = new speech.SpeechClient();
 
-// --- Middleware ---
-app.use(cors()); 
+// Middleware
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Authentication Middleware (to protect routes) ---
+// Auth middleware
 const protect = async (req, res, next) => {
-    let token;
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        try {
-            token = req.headers.authorization.split(' ')[1];
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            req.user = await User.findById(decoded.id).select('-password');
-            next();
-        } catch (error) {
-            return res.status(401).json({ error: 'Not authorized, token failed.' });
-        }
-    }
-    if (!token) {
-        return res.status(401).json({ error: 'Not authorized, no token.' });
-    }
-};
-
-// --- File Upload Middleware ---
-const uploadMiddleware = (req, res, next) => {
-    const upload = multer({
-        storage: multer.memoryStorage(),
-        limits: { fileSize: 25 * 1024 * 1024 },
-        fileFilter: (req, file, cb) => {
-            if (file.mimetype.startsWith('audio/')) {
-                cb(null, true);
-            } else {
-                cb(new Error('Invalid file type. Only audio files are permitted.'), false);
-            }
-        }
-    }).single('audio');
-
-    upload(req, res, (err) => {
-        if (err) {
-            return res.status(400).json({ error: 'File Upload Error', details: err.message });
-        }
-        next();
-    });
-};
-
-
-// --- API ROUTES ---
-
-app.post('/api/auth/register', async (req, res) => {
-    const { username, password } = req.body;
+  let token;
+  if (req.headers.authorization?.startsWith('Bearer')) {
     try {
-        if (!username || !password) {
-            return res.status(400).json({ error: 'Please enter all fields.' });
-        }
-        const userExists = await User.findOne({ username });
-        if (userExists) {
-            return res.status(400).json({ error: 'Username already exists.' });
-        }
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-        const user = await User.create({ username, password: hashedPassword });
-
-        if (user) {
-            res.status(201).json({
-                _id: user.id,
-                username: user.username,
-                token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
-            });
-        } else {
-            res.status(400).json({ error: 'Invalid user data.' });
-        }
+      token = req.headers.authorization.split(' ')[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = await User.findById(decoded.id).select('-password');
+      return next();
     } catch (error) {
-        res.status(500).json({ error: 'Server error during registration.', details: error.message });
+      return res.status(401).json({ error: 'Invalid token.' });
     }
+  }
+  return res.status(401).json({ error: 'No token provided.' });
+};
+
+// Multer setup
+const uploadMiddleware = (req, res, next) => {
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype.startsWith('audio/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only audio files allowed'), false);
+      }
+    },
+  }).single('audio');
+
+  upload(req, res, err => {
+    if (err) return res.status(400).json({ error: 'Upload error', details: err.message });
+    next();
+  });
+};
+
+// --- Auth Routes ---
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    if (!username || !password) return res.status(400).json({ error: 'All fields required.' });
+
+    const existing = await User.findOne({ username });
+    if (existing) return res.status(400).json({ error: 'Username taken.' });
+
+    const hash = await bcrypt.hash(password, 10);
+    const user = await User.create({ username, password: hash });
+
+    res.status(201).json({
+      _id: user.id,
+      username: user.username,
+      token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Registration failed.', details: err.message });
+  }
 });
 
 app.post('/api/auth/login', async (req, res) => {
-     const { username, password } = req.body;
-    try {
-        const user = await User.findOne({ username });
-        if (user && (await bcrypt.compare(password, user.password))) {
-            res.json({
-                _id: user.id,
-                username: user.username,
-                token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
-            });
-        } else {
-            res.status(401).json({ error: 'Invalid username or password.' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: 'Server error during login.', details: error.message });
+  const { username, password } = req.body;
+  try {
+    const user = await User.findOne({ username });
+    if (user && (await bcrypt.compare(password, user.password))) {
+      return res.json({
+        _id: user.id,
+        username: user.username,
+        token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
+      });
     }
+    res.status(401).json({ error: 'Invalid credentials.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Login failed.', details: err.message });
+  }
 });
 
+// --- Transcription Routes ---
 app.get('/api/transcriptions', protect, async (req, res) => {
-    try {
-        const transcriptions = await Transcription.find({ user: req.user.id }).sort({ createdAt: -1 });
-        res.status(200).json(transcriptions);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to retrieve transcriptions.' });
-    }
+  try {
+    const items = await Transcription.find({ user: req.user.id }).sort({ createdAt: -1 });
+    res.json(items);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch transcriptions.' });
+  }
 });
 
 app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
-    const { language, sourceType } = req.body;
-    if (!req.file) return res.status(400).json({ error: 'No audio file uploaded.' });
-    if (!language) return res.status(400).json({ error: 'No language selected.' });
+  const { language, sourceType } = req.body;
+  if (!req.file) return res.status(400).json({ error: 'No audio uploaded.' });
 
-    try {
-        const projectId = await speechClient.getProjectId();
-        const audioBytes = req.file.buffer.toString('base64');
-        const audio = { content: audioBytes };
+  try {
+    const projectId = await speechClient.getProjectId();
+    const audioBytes = req.file.buffer.toString('base64');
 
-        const getRecognitionConfig = (mimetype) => {
-            const baseConfig = {
-                languageCode: language,
-                model: 'latest_long',
-                enableAutomaticPunctuation: true,
-                adaptation: {
-                    phraseSets: [{
-                        name: `projects/${projectId}/locations/global/phraseSets/project-jargon`,
-                        phrases: [
-                            { value: "MERN stack", boost: 20 }, { value: "MongoDB", boost: 20 },
-                            { value: "Express.js", boost: 20 }, { value: "React", boost: 20 },
-                            { value: "Node.js", boost: 20 }
-                        ]
-                    }]
-                }
-            };
-            
-            if (mimetype === 'audio/webm' || mimetype === 'audio/ogg') {
-                return { ...baseConfig, encoding: 'WEBM_OPUS', sampleRateHertz: 48000 };
-            } else if (mimetype === 'audio/wav') {
-                return { ...baseConfig, encoding: 'LINEAR16' };
-            } else if (mimetype === 'audio/mpeg') {
-                return { ...baseConfig, encoding: 'MP3' };
-            } else if (mimetype === 'audio/flac') {
-                return { ...baseConfig, encoding: 'FLAC' };
-            }
-            
-            return { ...baseConfig, encoding: 'ENCODING_UNSPECIFIED' };
-        };
+    const config = {
+      languageCode: language,
+      model: 'latest_long',
+      enableAutomaticPunctuation: true,
+      adaptation: {
+        phraseSets: [{
+          name: `projects/${projectId}/locations/global/phraseSets/project-jargon`,
+          phrases: [
+            { value: "MERN stack", boost: 20 },
+            { value: "MongoDB", boost: 20 },
+            { value: "Express.js", boost: 20 },
+            { value: "React", boost: 20 },
+            { value: "Node.js", boost: 20 }
+          ]
+        }]
+      }
+    };
 
-        const config = getRecognitionConfig(req.file.mimetype);
-        const request = { audio, config };
+    const encodingMap = {
+      'audio/webm': 'WEBM_OPUS',
+      'audio/ogg': 'WEBM_OPUS',
+      'audio/wav': 'LINEAR16',
+      'audio/mpeg': 'MP3',
+      'audio/flac': 'FLAC',
+    };
 
-        const [response] = await speechClient.recognize(request);
-        
-        let transcriptionText = '[No speech detected]';
-        if (response.results?.length > 0 && response.results[0].alternatives?.length > 0) {
-            transcriptionText = response.results.map(result => result.alternatives[0].transcript).join('\n');
-        }
-        
-        const newTranscription = new Transcription({
-            fileName: req.file.originalname,
-            transcriptionText: transcriptionText,
-            language: language,
-            sourceType: sourceType,
-            user: req.user.id
-        });
-        
-        await newTranscription.save();
-        res.status(201).json(newTranscription);
+    config.encoding = encodingMap[req.file.mimetype] || 'ENCODING_UNSPECIFIED';
+    if (config.encoding === 'WEBM_OPUS') config.sampleRateHertz = 48000;
 
-    } catch (error) {
-        console.error("--- ERROR IN /api/transcribe ---", error);
-        res.status(500).json({ error: 'An error occurred on the server.', details: error.message });
-    }
+    const [response] = await speechClient.recognize({ audio: { content: audioBytes }, config });
+
+    const text = response.results?.map(r => r.alternatives[0].transcript).join('\n') || '[No speech detected]';
+    const newT = await Transcription.create({
+      fileName: req.file.originalname,
+      transcriptionText: text,
+      language,
+      sourceType,
+      user: req.user.id
+    });
+
+    res.status(201).json(newT);
+  } catch (error) {
+    console.error("❌ Transcribe error:", error);
+    res.status(500).json({ error: 'Transcription failed.', details: error.message });
+  }
 });
 
 app.delete('/api/transcriptions/:id', protect, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const transcription = await Transcription.findById(id);
-        if (!transcription) {
-            return res.status(404).json({ error: 'Transcription not found.' });
-        }
-        if (transcription.user.toString() !== req.user.id) {
-            return res.status(401).json({ error: 'User not authorized to delete this item.' });
-        }
-        await transcription.deleteOne();
-        res.status(200).json({ message: 'Transcription deleted successfully.' });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to delete transcription.' });
-    }
+  try {
+    const item = await Transcription.findById(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Not found.' });
+    if (item.user.toString() !== req.user.id) return res.status(403).json({ error: 'Not authorized.' });
+
+    await item.deleteOne();
+    res.json({ message: 'Deleted successfully.' });
+  } catch {
+    res.status(500).json({ error: 'Delete failed.' });
+  }
 });
 
-
-// --- DEPLOYMENT: SERVE STATIC ASSETS ---
+// --- Serve React Static Files (Production) ---
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../client/build')));
+  const clientPath = path.join(__dirname, '../client/build');
+  app.use(express.static(clientPath));
 
-    app.get('*', (req, res) => {
-        res.sendFile(path.resolve(__dirname, '../client/build', 'index.html'));
-    });
+  app.get('/*', (req, res) => {
+    res.sendFile(path.join(clientPath, 'index.html'));
+  });
 }
 
-
-// --- Start the Server ---
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+// --- Start server ---
+try {
+  app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+} catch (err) {
+  console.error('❌ Failed to start server:', err.message);
+}
