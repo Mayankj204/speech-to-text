@@ -101,9 +101,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!username || !password) {
       return res.status(400).json({ error: 'All fields required.' });
     }
-    app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found.' });
-});
+
 
     const user = await User.findOne({ username });
     if (user && (await bcrypt.compare(password, user.password))) {
@@ -205,6 +203,13 @@ app.delete('/api/transcriptions/:id', protect, async (req, res) => {
     return res.status(500).json({ error: 'Delete failed.' });
   }
 });
+
+// Handle undefined routes
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found.' });
+});
+
+
 
 // Start server
 app.listen(PORT, () => {
