@@ -81,7 +81,7 @@ const TranscriberApp = ({ user, onLogout }) => {
         formData.append('sourceType', sourceType);
 
         try {
-            const response = await fetch(`https://speech-to-text-9duq.onrender.com/transcribe`, { method: 'POST', headers: getAuthHeaders(), body: formData });
+            const response = await fetch(`${API_URL}/api/transcribe`, { method: 'POST', headers: getAuthHeaders(), body: formData });
             const newTranscription = await response.json();
             if (!response.ok) throw new Error(newTranscription.details || newTranscription.error);
             setTranscriptions(prev => [newTranscription, ...prev]);
