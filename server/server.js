@@ -191,13 +191,13 @@ app.delete('/api/transcriptions/:id', protect, async (req, res) => {
 });
 
 // Static file serving for deployment
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/build')));
+// if (process.env.NODE_ENV === 'production') {
+//   app.use(express.static(path.join(__dirname, '../client/build')));
 
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
-  });
-}
+//   app.get('*', (req, res) => {
+//     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+//   });
+// }
 
 // Start server
 app.listen(PORT, () => {
