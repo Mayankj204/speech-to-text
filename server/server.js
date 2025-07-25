@@ -28,7 +28,10 @@ mongoose.connect(process.env.MONGODB_URI)
 const speechClient = new speech.SpeechClient();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'https://speech-to-text-1-jmea.onrender.com',
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
