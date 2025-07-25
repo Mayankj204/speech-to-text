@@ -25,7 +25,9 @@ const UserIcon = ({ className }) => <svg className={className} xmlns="http://www
 const LogoutIcon = ({ className }) => <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>;
 
 // --- API URL Configuration ---
-const API_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
+const API_URL = process.env.NODE_ENV === 'production'
+  ? 'https://speech-to-text-9duq.onrender.com'  // 👈 Use your real Render backend URL
+  : 'http://localhost:3001';
 
 // --- Main Transcriber Component ---
 const TranscriberApp = ({ user, onLogout }) => {
@@ -79,7 +81,7 @@ const TranscriberApp = ({ user, onLogout }) => {
         formData.append('sourceType', sourceType);
 
         try {
-            const response = await fetch(`${API_URL}/api/transcribe`, { method: 'POST', headers: getAuthHeaders(), body: formData });
+            const response = await fetch(`https://speech-to-text-9duq.onrender.com/transcribe`, { method: 'POST', headers: getAuthHeaders(), body: formData });
             const newTranscription = await response.json();
             if (!response.ok) throw new Error(newTranscription.details || newTranscription.error);
             setTranscriptions(prev => [newTranscription, ...prev]);
