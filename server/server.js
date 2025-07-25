@@ -9,7 +9,6 @@ const mongoose = require('mongoose');
 const speech = require('@google-cloud/speech');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const path = require('path');
 
 // Models
 const Transcription = require('./models/Transcription');
@@ -29,7 +28,7 @@ const speechClient = new speech.SpeechClient();
 
 // Middleware
 app.use(cors({
-  origin: 'https://speech-to-text-1-jmea.onrender.com',
+  origin: 'https://speech-to-text-1-jmea.onrender.com', // your frontend
   credentials: true
 }));
 app.use(express.json());
@@ -57,11 +56,8 @@ const uploadMiddleware = (req, res, next) => {
     storage: multer.memoryStorage(),
     limits: { fileSize: 25 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-      if (file.mimetype.startsWith('audio/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Only audio files allowed'), false);
-      }
+      if (file.mimetype.startsWith('audio/')) cb(null, true);
+      else cb(new Error('Only audio files allowed'), false);
     },
   }).single('audio');
 
@@ -71,18 +67,14 @@ const uploadMiddleware = (req, res, next) => {
   });
 };
 
-// Auth routes
+// Routes
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;
   try {
-    if (!username || !password) {
-      return res.status(400).json({ error: 'All fields required.' });
-    }
+    if (!username || !password) return res.status(400).json({ error: 'All fields required.' });
 
     const existing = await User.findOne({ username });
-    if (existing) {
-      return res.status(400).json({ error: 'Username taken.' });
-    }
+    if (existing) return res.status(400).json({ error: 'Username taken.' });
 
     const hash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, password: hash });
@@ -101,13 +93,10 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    if (!username || !password) {
-      return res.status(400).json({ error: 'All fields required.' });
-    }
-
+    if (!username || !password) return res.status(400).json({ error: 'All fields required.' });
 
     const user = await User.findOne({ username });
-    if (user && (await bcrypt.compare(password, user.password))) {
+    if (user && await bcrypt.compare(password, user.password)) {
       return res.json({
         _id: user.id,
         username: user.username,
@@ -122,7 +111,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Transcription routes
 app.get('/api/transcriptions', protect, async (req, res) => {
   try {
     const items = await Transcription.find({ user: req.user.id }).sort({ createdAt: -1 });
@@ -134,8 +122,13 @@ app.get('/api/transcriptions', protect, async (req, res) => {
 });
 
 app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
-  const { language, sourceType } = req.body;
+  console.log("📩 /api/transcribe endpoint hit");
+
   if (!req.file) return res.status(400).json({ error: 'No audio uploaded.' });
+
+  console.log("📦 Audio uploaded:", req.file.originalname, req.file.mimetype, req.file.size);
+
+  const { language, sourceType } = req.body;
 
   try {
     const projectId = await speechClient.getProjectId();
@@ -150,7 +143,7 @@ app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
     };
 
     const config = {
-      languageCode: language,
+      languageCode: language || 'en-US',
       model: 'latest_long',
       enableAutomaticPunctuation: true,
       encoding: encodingMap[req.file.mimetype] || 'ENCODING_UNSPECIFIED',
@@ -188,8 +181,8 @@ app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
 
     return res.status(201).json(newT);
   } catch (error) {
-    console.error("Transcription error:", error);
-    return res.status(500).json({ error: 'Transcription failed.', details: error.message });
+    console.error("❌ Transcription error:", error);
+    return res.status(500).json({ error: 'Transcription failed.', details: error.message || 'Unknown error' });
   }
 });
 
@@ -207,12 +200,10 @@ app.delete('/api/transcriptions/:id', protect, async (req, res) => {
   }
 });
 
-// Handle undefined routes
+// Catch-all route
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found.' });
 });
-
-
 
 // Start server
 app.listen(PORT, () => {
