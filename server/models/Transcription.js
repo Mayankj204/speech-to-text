@@ -21,8 +21,8 @@ const transcriptionSchema = new mongoose.Schema({
     },
     // This field links the transcription to a specific user.
     user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
+        type: mongoose.Schema.Types.ObjectId, // This will store the user's unique ID
+        ref: 'User', // This creates a reference to the User model
         required: true,
     },
     createdAt: {
@@ -31,6 +31,7 @@ const transcriptionSchema = new mongoose.Schema({
     },
 });
 
+// Create a Mongoose model based on the schema
 const Transcription = mongoose.model('Transcription', transcriptionSchema);
 
 module.exports = Transcription;

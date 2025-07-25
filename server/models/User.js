@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const crypto = require('crypto'); // Node.js crypto module for generating tokens
 
 // Defines the structure for documents in the 'users' collection
 const userSchema = new mongoose.Schema({
