@@ -72,27 +72,39 @@ const uploadMiddleware = (req, res, next) => {
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;
   try {
-    if (!username || !password) return res.status(400).json({ error: 'All fields required.' });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'All fields required.' });
+    }
 
     const existing = await User.findOne({ username });
-    if (existing) return res.status(400).json({ error: 'Username taken.' });
+    if (existing) {
+      return res.status(400).json({ error: 'Username taken.' });
+    }
 
     const hash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, password: hash });
 
-    res.status(201).json({
+    return res.status(201).json({
       _id: user.id,
       username: user.username,
       token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
     });
   } catch (err) {
-    res.status(500).json({ error: 'Registration failed.', details: err.message });
+    console.error('Register error:', err);
+    return res.status(500).json({ error: 'Registration failed.', details: err.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
+    if (!username || !password) {
+      return res.status(400).json({ error: 'All fields required.' });
+    }
+    app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found.' });
+});
+
     const user = await User.findOne({ username });
     if (user && (await bcrypt.compare(password, user.password))) {
       return res.json({
@@ -101,9 +113,11 @@ app.post('/api/auth/login', async (req, res) => {
         token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
       });
     }
-    res.status(401).json({ error: 'Invalid credentials.' });
+
+    return res.status(401).json({ error: 'Invalid credentials.' });
   } catch (err) {
-    res.status(500).json({ error: 'Login failed.', details: err.message });
+    console.error('Login error:', err);
+    return res.status(500).json({ error: 'Login failed.', details: err.message });
   }
 });
 
@@ -111,9 +125,10 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/transcriptions', protect, async (req, res) => {
   try {
     const items = await Transcription.find({ user: req.user.id }).sort({ createdAt: -1 });
-    res.json(items);
-  } catch {
-    res.status(500).json({ error: 'Failed to fetch transcriptions.' });
+    return res.json(items);
+  } catch (err) {
+    console.error('Fetch error:', err);
+    return res.status(500).json({ error: 'Failed to fetch transcriptions.' });
   }
 });
 
@@ -170,10 +185,10 @@ app.post('/api/transcribe', protect, uploadMiddleware, async (req, res) => {
       user: req.user.id
     });
 
-    res.status(201).json(newT);
+    return res.status(201).json(newT);
   } catch (error) {
     console.error("Transcription error:", error);
-    res.status(500).json({ error: 'Transcription failed.', details: error.message });
+    return res.status(500).json({ error: 'Transcription failed.', details: error.message });
   }
 });
 
@@ -184,20 +199,12 @@ app.delete('/api/transcriptions/:id', protect, async (req, res) => {
     if (item.user.toString() !== req.user.id) return res.status(403).json({ error: 'Not authorized.' });
 
     await item.deleteOne();
-    res.json({ message: 'Deleted successfully.' });
-  } catch {
-    res.status(500).json({ error: 'Delete failed.' });
+    return res.json({ message: 'Deleted successfully.' });
+  } catch (err) {
+    console.error('Delete error:', err);
+    return res.status(500).json({ error: 'Delete failed.' });
   }
 });
-
-// Static file serving for deployment
-// if (process.env.NODE_ENV === 'production') {
-//   app.use(express.static(path.join(__dirname, '../client/build')));
-
-//   app.get('*', (req, res) => {
-//     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
-//   });
-// }
 
 // Start server
 app.listen(PORT, () => {
